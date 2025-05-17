@@ -5,11 +5,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from io import BytesIO
 import base64
-from datetime import datetime
-from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
+from ta.momentum import RSIIndicator
+from ta.trend import MACD
+from ta.volatility import BollingerBands
 
 app = Flask(__name__)
 
@@ -17,84 +19,117 @@ app = Flask(__name__)
 def home():
     return render_template('index.html')
 
-@app.route('/predict', methods=['POST'])
-def predict():
+@app.route('/autocomplete')
+def autocomplete():
+    query = request.args.get('q', '').upper()
+    symbols = ['AAPL', 'MSFT', 'TSLA', 'GOOG', 'AMZN', '2330.TW', '2303.TW']
+    return jsonify([s for s in symbols if query in s])
+
+@app.route('/analysis', methods=['POST'])
+def analysis():
     data = request.json
     symbol = data['symbol']
     start_date = data['start_date']
     end_date = data['end_date']
-    forecast_days = int(data.get('forecast_days', 30))
-    model_type = data.get('model_type', 'lstm')
+    interval = data['interval']
 
-    df = yf.download(symbol, start=start_date, end=end_date)
+    df = yf.download(symbol, start=start_date, end=end_date, interval=interval)
     if df.empty:
-        return jsonify({'error': '資料下載失敗'})
+        return jsonify({'error': '無法下載資料'})
 
-    if model_type == 'compare':
-        close_data = df[['Adj Close']].values
-        scaler = MinMaxScaler()
-        scaled_data = scaler.fit_transform(close_data)
+    df['Return'] = df['Adj Close'].pct_change()
+    df['Year'] = df.index.year
 
-        X, y = [], []
-        for i in range(60, len(scaled_data)):
-            X.append(scaled_data[i-60:i, 0])
-            y.append(scaled_data[i, 0])
+    volatility = df.groupby('Year')['Return'].std() * np.sqrt(252)
+    avg_return = df.groupby('Year')['Return'].mean() * 252
+    cumulative = (1 + df['Return'].fillna(0)).cumprod()
+    peak = cumulative.cummax()
+    drawdown = (cumulative - peak) / peak
+    max_drawdown = drawdown.min()
+    sharpe_ratio = (df['Return'].mean() * 252) / (df['Return'].std() * np.sqrt(252))
 
-        X, y = np.array(X), np.array(y)
-        X = np.reshape(X, (X.shape[0], X.shape[1], 1))
+    market = yf.download('^GSPC', start=start_date, end=end_date, interval=interval)
+    market['Return'] = market['Adj Close'].pct_change()
+    common_index = df['Return'].dropna().index.intersection(market['Return'].dropna().index)
+    cov = np.cov(df.loc[common_index, 'Return'], market.loc[common_index, 'Return'])
+    beta = cov[0, 1] / cov[1, 1] if cov[1, 1] != 0 else None
+    alpha = (df['Return'].mean() - beta * market['Return'].mean()) * 252 if beta else None
 
-        model = Sequential()
-        model.add(LSTM(units=50, return_sequences=True, input_shape=(X.shape[1], 1)))
-        model.add(LSTM(units=50))
-        model.add(Dense(1))
-        model.compile(optimizer='adam', loss='mean_squared_error')
-        model.fit(X, y, epochs=10, batch_size=32, verbose=0)
+    # NAV 圖
+    nav = (1 + df['Return'].fillna(0)).cumprod()
+    fig, ax = plt.subplots(figsize=(10, 4))
+    nav.plot(ax=ax)
+    plt.title(f'{symbol} NAV 淨值曲線')
+    buf = BytesIO()
+    plt.savefig(buf, format='png')
+    nav_img = base64.b64encode(buf.getvalue()).decode()
+    plt.close()
 
-        last_sequence = scaled_data[-60:]
-        lstm_predictions = []
-        current_input = last_sequence.copy()
-        for _ in range(forecast_days):
-            input_seq = current_input[-60:].reshape(1, 60, 1)
-            next_pred = model.predict(input_seq, verbose=0)[0][0]
-            lstm_predictions.append(next_pred)
-            current_input = np.append(current_input, [[next_pred]], axis=0)
+    # RSI 圖
+    rsi = RSIIndicator(df['Adj Close']).rsi()
+    fig, ax = plt.subplots(figsize=(10, 3))
+    rsi.plot(ax=ax)
+    plt.axhline(70, color='r', linestyle='--')
+    plt.axhline(30, color='g', linestyle='--')
+    plt.title(f'{symbol} RSI 指標')
+    buf = BytesIO()
+    plt.savefig(buf, format='png')
+    rsi_img = base64.b64encode(buf.getvalue()).decode()
+    plt.close()
 
-        lstm_predictions = scaler.inverse_transform(np.array(lstm_predictions).reshape(-1, 1)).flatten()
-        train_preds = model.predict(X, verbose=0)
-        train_preds = scaler.inverse_transform(train_preds)
-        actual = scaler.inverse_transform(y.reshape(-1, 1))
-        lstm_rmse = float(np.sqrt(mean_squared_error(actual, train_preds)))
-        lstm_mape = float(mean_absolute_percentage_error(actual, train_preds))
+    # MACD 圖
+    macd = MACD(df['Adj Close'])
+    fig, ax = plt.subplots(figsize=(10, 3))
+    ax.plot(df.index, macd.macd(), label='MACD')
+    ax.plot(df.index, macd.macd_signal(), label='Signal')
+    ax.legend()
+    plt.title(f'{symbol} MACD 指標')
+    buf = BytesIO()
+    plt.savefig(buf, format='png')
+    macd_img = base64.b64encode(buf.getvalue()).decode()
+    plt.close()
 
-        last_price = df['Adj Close'].iloc[-1]
-        returns = df['Adj Close'].pct_change().dropna()
-        mu, sigma = returns.mean(), returns.std()
-        random_predictions = [last_price]
-        for _ in range(forecast_days):
-            random_predictions.append(random_predictions[-1] * (1 + np.random.normal(mu, sigma)))
-        random_predictions = random_predictions[1:]
+    # 布林帶圖
+    bb = BollingerBands(df['Adj Close'])
+    fig, ax = plt.subplots(figsize=(10, 3))
+    ax.plot(df.index, df['Adj Close'], label='收盤價')
+    ax.plot(df.index, bb.bollinger_hband(), linestyle='--', label='上軌')
+    ax.plot(df.index, bb.bollinger_lband(), linestyle='--', label='下軌')
+    ax.legend()
+    plt.title(f'{symbol} 布林通道')
+    buf = BytesIO()
+    plt.savefig(buf, format='png')
+    bb_img = base64.b64encode(buf.getvalue()).decode()
+    plt.close()
 
-        dates = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=forecast_days)
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(dates, lstm_predictions, label='LSTM 預測')
-        ax.plot(dates, random_predictions, label='隨機預測')
-        plt.title(f"{symbol} LSTM vs Random 預測比較")
-        plt.xlabel("日期")
-        plt.ylabel("價格")
-        plt.legend()
-        buf = BytesIO()
-        plt.savefig(buf, format='png')
-        buf.seek(0)
-        predict_img = base64.b64encode(buf.read()).decode('utf-8')
-        plt.close(fig)
+    # 匯出 Excel（分析報表）
+    excel_buf = BytesIO()
+    excel_df = pd.DataFrame({
+        'Year': volatility.index,
+        'Volatility': volatility.values,
+        'Average Return': avg_return.values
+    })
+    excel_df['Max Drawdown'] = max_drawdown
+    excel_df['Sharpe Ratio'] = sharpe_ratio
+    excel_df['Alpha'] = alpha
+    excel_df['Beta'] = beta
+    excel_df.to_excel(excel_buf, index=False)
+    excel_buf.seek(0)
+    excel_b64 = base64.b64encode(excel_buf.read()).decode()
 
-        return jsonify({
-            'predict_img': predict_img,
-            'lstm_rmse': lstm_rmse,
-            'lstm_mape': lstm_mape
-        })
-
-    return jsonify({'error': '未支援的模型模式'})
+    return jsonify({
+        'volatility': volatility.to_dict(),
+        'average_return': avg_return.to_dict(),
+        'max_drawdown': max_drawdown,
+        'sharpe_ratio': sharpe_ratio,
+        'alpha': alpha,
+        'beta': beta,
+        'nav_img': nav_img,
+        'rsi_img': rsi_img,
+        'macd_img': macd_img,
+        'bb_img': bb_img,
+        'excel_data': excel_b64
+    })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
