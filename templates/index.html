@@ -73,6 +73,95 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     });
+  // 送出分析表單
+    document.getElementById('analysisForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const symbol = document.getElementById('analysis_symbol').value.trim().toUpperCase();
+      const start_date = document.getElementById('analysis_start').value;
+      const end_date = document.getElementById('analysis_end').value;
+      const interval = document.getElementById('interval').value;
+
+      const res = await fetch('/analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, start_date, end_date, interval })
+      });
+
+      const result = await res.json();
+      if (result.error) {
+        document.getElementById('analysis_result').innerHTML = `<p style='color:red;'>${result.error}</p>`;
+        return;
+      }
+
+      lastAnalysis = result;
+      lastAnalysis.symbol = symbol;
+
+      let html = `<h3>${symbol} 股票分析結果</h3>`;
+      html += `<img src="data:image/png;base64,${result.nav_img}" alt="NAV 圖">`;
+      html += `<img src="data:image/png;base64,${result.rsi_img}" alt="RSI 圖">`;
+      html += `<img src="data:image/png;base64,${result.macd_img}" alt="MACD 圖">`;
+      html += `<img src="data:image/png;base64,${result.bb_img}" alt="布林通道圖">`;
+      html += `<p><strong>最大回測：</strong>${(result.max_drawdown * 100).toFixed(2)}%</p>`;
+      html += `<p><strong>Sharpe Ratio：</strong>${result.sharpe_ratio.toFixed(2)}</p>`;
+      html += `<p><strong>Alpha：</strong>${result.alpha?.toFixed(4) ?? 'N/A'}</p>`;
+      html += `<p><strong>Beta：</strong>${result.beta?.toFixed(4) ?? 'N/A'}</p>`;
+
+      document.getElementById('analysis_result').innerHTML = html;
+    });
+      // 股票代號自動補齊
+    const symbolInput = document.getElementById('predict_symbol');
+    const suggestionBox = document.getElementById('symbol_suggestions');
+
+    symbolInput.addEventListener('input', async function () {
+      const query = symbolInput.value.trim();
+      if (!query) return suggestionBox.innerHTML = '';
+      const res = await fetch(`/autocomplete?q=${query}`);
+      const list = await res.json();
+      suggestionBox.innerHTML = list.map(s => `<li>${s}</li>`).join('');
+    });
+
+    suggestionBox.addEventListener('click', function (e) {
+      if (e.target.tagName === 'LI') {
+        symbolInput.value = e.target.textContent;
+        suggestionBox.innerHTML = '';
+      }
+    });
+
+    // 送出預測表單
+    document.getElementById('predictForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const symbol = document.getElementById('predict_symbol').value.trim().toUpperCase();
+      const start_date = document.getElementById('predict_start').value;
+      const end_date = document.getElementById('predict_end').value;
+      const forecast_days = parseInt(document.getElementById('forecast_days').value);
+      const model_type = document.getElementById('model_type').value;
+
+      const response = await fetch('/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, start_date, end_date, forecast_days, model_type })
+      });
+
+      const result = await response.json();
+      if (result.error) {
+        document.getElementById('predict_result').innerHTML = `<p style='color:red;'>${result.error}</p>`;
+        return;
+      }
+
+      let html = `<h3>${symbol} 預測結果（${model_type.toUpperCase()}，${forecast_days} 天）</h3>`;
+      html += `<img src="data:image/png;base64,${result.predict_img}" alt="預測圖">`;
+
+      if (model_type === 'compare') {
+        html += `<p><strong>LSTM RMSE：</strong>${result.lstm_rmse.toFixed(2)}</p>`;
+        html += `<p><strong>LSTM MAPE：</strong>${(result.lstm_mape * 100).toFixed(2)}%</p>`;
+        html += `<p><em>隨機模型不提供誤差評估。</em></p>`;
+      } else if (result.rmse && result.mape) {
+        html += `<p><strong>RMSE：</strong>${result.rmse.toFixed(2)}</p>`;
+        html += `<p><strong>MAPE：</strong>${(result.mape * 100).toFixed(2)}%</p>`;
+      }
+
+      document.getElementById('predict_result').innerHTML = html;
+    });
   </script>
 </body>
 </html>
