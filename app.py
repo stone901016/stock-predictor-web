@@ -38,7 +38,7 @@ def predict():
     if df.empty:
         return jsonify({'error': '無法下載資料'})
 
-    close_prices = df[['Adj Close']].values
+    close_prices = df[['Adj Close']].values if 'Adj Close' in df.columns else df[['Close']].values
     scaler = MinMaxScaler()
     scaled = scaler.fit_transform(close_prices)
 
