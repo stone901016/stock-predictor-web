@@ -137,11 +137,18 @@
       const forecast_days = parseInt(document.getElementById('forecast_days').value);
       const model_type = document.getElementById('model_type').value;
 
-      const response = await fetch('/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, start_date, end_date, forecast_days, model_type })
-      });
+      try {
+        const response = await fetch('/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol, start_date, end_date, forecast_days, model_type })
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error('伺服器錯誤：' + text);
+        }
+        const result = await response.json();
 
       if (!response.ok) {
         const text = await response.text();
@@ -166,6 +173,9 @@
       }
 
       document.getElementById('predict_result').innerHTML = html;
+      } catch (err) {
+        document.getElementById('predict_result').innerHTML = `<p style='color:red;'>預測失敗：${err.message}</p>`;
+      }
     });
   </script>
 </body>
