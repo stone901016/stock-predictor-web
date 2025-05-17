@@ -7,13 +7,17 @@
     body { font-family: sans-serif; padding: 20px; }
     input, select, button { margin: 5px; padding: 5px; }
     .chart img { max-width: 100%; margin-top: 15px; }
+    ul.autocomplete-results { list-style-type: none; padding: 0; margin: 0; background: #fff; border: 1px solid #ccc; position: absolute; z-index: 99; max-height: 150px; overflow-y: auto; }
+    ul.autocomplete-results li { padding: 5px; cursor: pointer; }
+    ul.autocomplete-results li:hover { background: #eee; }
   </style>
 </head>
 <body>
   <h1>📈 股票預測系統</h1>
 
   <form id="predictForm">
-    股票代號：<input type="text" id="predict_symbol" required><br>
+    股票代號：<input type="text" id="predict_symbol" autocomplete="off" required>
+    <ul id="symbol_suggestions" class="autocomplete-results"></ul><br>
     起始日期：<input type="date" id="predict_start" required>
     結束日期：<input type="date" id="predict_end" required><br>
     預測未來幾天：<input type="number" id="forecast_days" value="30" min="1" max="180" required><br>
@@ -28,38 +32,46 @@
 
   <div id="predict_result" class="chart"></div>
 
+  <h2>📊 股票分析工具</h2>
+  <form id="analysisForm">
+    股票代號：<input type="text" id="analysis_symbol" required>
+    起始日期：<input type="date" id="analysis_start" required>
+    結束日期：<input type="date" id="analysis_end" required>
+    資料頻率：<select id="interval">
+      <option value="1d">日資料</option>
+      <option value="1wk">週資料</option>
+      <option value="1mo">月資料</option>
+    </select>
+    <button type="submit">分析</button>
+    <button type="button" id="downloadExcel">📥 匯出 Excel</button>
+  </form>
+
+  <div id="analysis_result"></div>
+
   <script>
-    document.getElementById('predictForm').addEventListener('submit', async function(e) {
-      e.preventDefault();
-      const symbol = document.getElementById('predict_symbol').value.trim().toUpperCase();
-      const start_date = document.getElementById('predict_start').value;
-      const end_date = document.getElementById('predict_end').value;
-      const forecast_days = parseInt(document.getElementById('forecast_days').value);
-      const model_type = document.getElementById('model_type').value;
+    let lastAnalysis = {};
 
-      const response = await fetch('/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, start_date, end_date, forecast_days, model_type })
-      });
-
-      const result = await response.json();
-
-      if (result.error) {
-        document.getElementById('predict_result').innerHTML = `<p style="color:red;">${result.error}</p>`;
+    // 匯出 Excel
+    document.getElementById('downloadExcel').addEventListener('click', function () {
+      if (!lastAnalysis.excel_data) {
+        alert('請先執行一次分析');
         return;
       }
-
-      let html = `<h3>${symbol} 預測結果（${model_type.toUpperCase()}，未來 ${forecast_days} 天）</h3>`;
-      html += `<img src="data:image/png;base64,${result.predict_img}" alt="預測圖">`;
-
-      if (model_type === 'compare') {
-        html += `<p><strong>LSTM RMSE：</strong>${result.lstm_rmse.toFixed(2)}</p>`;
-        html += `<p><strong>LSTM MAPE：</strong>${(result.lstm_mape * 100).toFixed(2)}%</p>`;
-        html += `<p><em>隨機模型不提供誤差評估。</em></p>`;
+      const byteCharacters = atob(lastAnalysis.excel_data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
-
-      document.getElementById('predict_result').innerHTML = html;
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${lastAnalysis.symbol}_分析報告.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     });
   </script>
 </body>
