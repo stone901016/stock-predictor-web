@@ -1,1 +1,66 @@
-<完整的 index.html 程式碼請在這裡插入>
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>股價預測分析工具</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    input, select, button { margin: 5px; padding: 5px; }
+    .chart img { max-width: 100%; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <h1>📈 股票預測系統</h1>
+
+  <form id="predictForm">
+    股票代號：<input type="text" id="predict_symbol" required><br>
+    起始日期：<input type="date" id="predict_start" required>
+    結束日期：<input type="date" id="predict_end" required><br>
+    預測未來幾天：<input type="number" id="forecast_days" value="30" min="1" max="180" required><br>
+    預測模型：
+    <select id="model_type">
+      <option value="lstm">LSTM 模型</option>
+      <option value="random">隨機漫步模型</option>
+      <option value="compare">比較（LSTM vs Random）</option>
+    </select><br>
+    <button type="submit">開始預測</button>
+  </form>
+
+  <div id="predict_result" class="chart"></div>
+
+  <script>
+    document.getElementById('predictForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const symbol = document.getElementById('predict_symbol').value.trim().toUpperCase();
+      const start_date = document.getElementById('predict_start').value;
+      const end_date = document.getElementById('predict_end').value;
+      const forecast_days = parseInt(document.getElementById('forecast_days').value);
+      const model_type = document.getElementById('model_type').value;
+
+      const response = await fetch('/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, start_date, end_date, forecast_days, model_type })
+      });
+
+      const result = await response.json();
+
+      if (result.error) {
+        document.getElementById('predict_result').innerHTML = `<p style="color:red;">${result.error}</p>`;
+        return;
+      }
+
+      let html = `<h3>${symbol} 預測結果（${model_type.toUpperCase()}，未來 ${forecast_days} 天）</h3>`;
+      html += `<img src="data:image/png;base64,${result.predict_img}" alt="預測圖">`;
+
+      if (model_type === 'compare') {
+        html += `<p><strong>LSTM RMSE：</strong>${result.lstm_rmse.toFixed(2)}</p>`;
+        html += `<p><strong>LSTM MAPE：</strong>${(result.lstm_mape * 100).toFixed(2)}%</p>`;
+        html += `<p><em>隨機模型不提供誤差評估。</em></p>`;
+      }
+
+      document.getElementById('predict_result').innerHTML = html;
+    });
+  </script>
+</body>
+</html>
