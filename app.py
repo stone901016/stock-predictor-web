@@ -34,6 +34,16 @@ def analyze():
         df = yf.download(symbol, start=start_date, end=end_date, interval=interval)
         if df.empty:
             return jsonify({'error': '找不到資料，請確認股票代號與日期'}), 400
+        df.columns = [col.strip() for col in df.columns]  # 清除欄位名稱空白
+        if 'Adj Close' not in df.columns:
+            if 'Close' in df.columns:
+                df['Adj Close'] = df['Close']
+            else:
+                return jsonify({'error': '資料中缺少收盤價欄位'}), 400
+        if 'Adj Close' not in df.columns:
+            df['Adj Close'] = df['Close']
+        if df.empty:
+            return jsonify({'error': '找不到資料，請確認股票代號與日期'}), 400
 
         df['Return'] = df['Adj Close'].pct_change()
         df['Year'] = df.index.year
@@ -48,7 +58,19 @@ def analyze():
 
         sharpe_ratio = (df['Return'].mean() * 252) / (df['Return'].std() * np.sqrt(252))
 
-        market = yf.download('^GSPC', start=start_date, end=end_date, interval=interval)
+                # 根據股票代號決定市場指數
+        if symbol.endswith('.TW'):
+            market_index = '^TWII'  # 台灣加權指數
+        elif symbol.endswith('.KS') or symbol.endswith('.KQ'):
+            market_index = '^KS11'  # 南韓 KOSPI
+        elif symbol.endswith('.T'):
+            market_index = '^N225'  # 日本日經 225
+        elif symbol.endswith('.HK'):
+            market_index = '^HSI'   # 香港恆生指數
+        else:
+            market_index = '^GSPC'  # 預設美股 S&P500
+
+        market = yf.download(market_index, start=start_date, end=end_date, interval=interval)
         market['Return'] = market['Adj Close'].pct_change()
         common_index = df['Return'].dropna().index.intersection(market['Return'].dropna().index)
         cov = np.cov(df.loc[common_index, 'Return'], market.loc[common_index, 'Return'])
@@ -79,4 +101,3 @@ if __name__ == '__main__':
     import os
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
-
