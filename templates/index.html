@@ -6,7 +6,7 @@
   <style>
     body {
       font-family: sans-serif;
-      font-size: 20px;           /* 全站文字放大 */
+      font-size: 20px;
       padding: 20px;
       line-height: 1.6;
     }
@@ -87,7 +87,7 @@
       document.getElementById('year_range').style.display = e.target.value==='year'?'block':'none';
     });
 
-    // 自動補全
+    // 股票代號自動補全
     const symbolInput = document.getElementById('symbol');
     const dataList = document.getElementById('symbol-list');
     let lastFetch = '';
@@ -133,7 +133,7 @@
         });
         const data = await res.json();
         if (data.error) {
-          document.getElementById('result').innerHTML = `<p style="color:red;">錯誤：${data.error}</p>`;
+          document.getElementById('result').innerHTML = `<p style=\"color:red;\">錯誤：${data.error}</p>`;
           return;
         }
         let html = `<h2>${symbol} 分析結果</h2>`;
@@ -148,10 +148,10 @@
         html += `<p><strong>Sharpe Ratio：</strong>${data.sharpe_ratio.toFixed(2)}</p>`;
         html += `<p><strong>Alpha：</strong>${data.alpha!==null?data.alpha.toFixed(4):'N/A'}</p>`;
         html += `<p><strong>Beta：</strong>${data.beta!==null?data.beta.toFixed(4):'N/A'}</p>`;
-        html += `<img src="data:image/png;base64,${data.nav_img}" alt="NAV 圖">`;
+        html += `<img src=\"data:image/png;base64,${data.nav_img}\" alt=\"NAV 圖\">`;
         document.getElementById('result').innerHTML = html;
       } catch (err) {
-        document.getElementById('result').innerHTML = `<p style="color:red;">例外：${err.message}</p>`;
+        document.getElementById('result').innerHTML = `<p style=\"color:red;\">例外：${err.message}</p>`;
       }
     });
   </script>
