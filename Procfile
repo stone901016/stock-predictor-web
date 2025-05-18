@@ -1,3 +1,4 @@
-web: gunicorn app:app --bind 0.0.0.0:$PORT --access-logfile -
+web: python app.py
+
 
 
