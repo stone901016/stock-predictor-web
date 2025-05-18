@@ -46,7 +46,10 @@
 <body>
   <h1>📈 股票分析系統</h1>
   <form id="analyzeForm">
-    <label>股票代號：<input type="text" id="symbol" required></label><br>
+    <label>股票代號：
+      <input list="symbol-list" id="symbol" required autocomplete="off">
+      <datalist id="symbol-list"></datalist>
+    </label><br>
     <label>資料區間：
       <select id="date_mode">
         <option value="range">起訖日期</option>
@@ -74,12 +77,36 @@
   <div id="result" class="result-section"></div>
 
   <script>
-    const dateMode = document.getElementById('date_mode');
-    dateMode.addEventListener('change', e => {
+    // 切換日期輸入區塊
+    document.getElementById('date_mode').addEventListener('change', e => {
       document.getElementById('date_range').style.display = e.target.value==='range'?'block':'none';
       document.getElementById('year_range').style.display = e.target.value==='year'?'block':'none';
     });
 
+    // 自動補全
+    const symbolInput = document.getElementById('symbol');
+    const dataList = document.getElementById('symbol-list');
+    let lastFetch = '';
+    symbolInput.addEventListener('input', async () => {
+      const q = symbolInput.value.trim();
+      if (q.length < 2 || q === lastFetch) return;
+      lastFetch = q;
+      try {
+        const res = await fetch(`/autocomplete?q=${encodeURIComponent(q)}`);
+        const items = await res.json();
+        dataList.innerHTML = '';
+        for (const it of items.slice(0, 10)) {
+          const opt = document.createElement('option');
+          opt.value = it.symbol;
+          opt.label = it.name;
+          dataList.appendChild(opt);
+        }
+      } catch (e) {
+        console.warn('Autocomplete error', e);
+      }
+    });
+
+    // 提交分析
     document.getElementById('analyzeForm').addEventListener('submit', async e => {
       e.preventDefault();
       const symbol    = document.getElementById('symbol').value.trim();
@@ -92,26 +119,23 @@
       } else if(date_mode==='year'){
         years = document.getElementById('years').value;
       }
-
       document.getElementById('result').innerHTML = '<p>📊 分析中...</p>';
 
       try {
         const res = await fetch('/analyze', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({symbol,date_mode,start_date,end_date,years,interval})
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({symbol,date_mode,start_date,end_date,years,interval})
         });
         const data = await res.json();
         if(data.error){
           document.getElementById('result').innerHTML = `<p style="color:red;">錯誤：${data.error}</p>`;
           return;
         }
-
-        // 組成 HTML
         let html = `<h2>${symbol} 分析結果</h2>`;
         html += `<h3>每年波動度</h3><pre>${JSON.stringify(data.volatility, null, 2)}</pre>`;
         html += `<h3>每年累積報酬率</h3><ul>`;
-        for(const [year, val] of Object.entries(data.annual_returns)){
+        for(const [year,val] of Object.entries(data.annual_returns)){
           html += `<li>${year}：${(val*100).toFixed(2)}%</li>`;
         }
         html += `</ul>`;
@@ -122,8 +146,7 @@
         html += `<p><strong>Beta：</strong>${data.beta!==null?data.beta.toFixed(4):'N/A'}</p>`;
         html += `<img src="data:image/png;base64,${data.nav_img}" alt="NAV 圖">`;
         document.getElementById('result').innerHTML = html;
-
-      } catch(err) {
+      } catch(err){
         document.getElementById('result').innerHTML = `<p style="color:red;">例外：${err.message}</p>`;
       }
     });
