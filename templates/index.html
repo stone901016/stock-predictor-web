@@ -2,179 +2,96 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <title>股價預測分析工具</title>
+  <title>股票分析系統</title>
   <style>
     body { font-family: sans-serif; padding: 20px; }
     input, select, button { margin: 5px; padding: 5px; }
-    .chart img { max-width: 100%; margin-top: 15px; }
-    ul.autocomplete-results { list-style-type: none; padding: 0; margin: 0; background: #fff; border: 1px solid #ccc; position: absolute; z-index: 99; max-height: 150px; overflow-y: auto; }
-    ul.autocomplete-results li { padding: 5px; cursor: pointer; }
-    ul.autocomplete-results li:hover { background: #eee; }
   </style>
 </head>
 <body>
-  <h1>📈 股票預測系統</h1>
+  <h1>📈 股票分析系統</h1>
 
-  <form id="predictForm">
-    股票代號：<input type="text" id="predict_symbol" autocomplete="off" required>
-    <ul id="symbol_suggestions" class="autocomplete-results"></ul><br>
-    起始日期：<input type="date" id="predict_start" required>
-    結束日期：<input type="date" id="predict_end" required><br>
-    預測未來幾天：<input type="number" id="forecast_days" value="30" min="1" max="180" required><br>
-    預測模型：
-    <select id="model_type">
-      <option value="lstm">LSTM 模型</option>
-      <option value="random">隨機漫步模型</option>
-      <option value="compare">比較（LSTM vs Random）</option>
+  <form id="analyzeForm">
+    <label>股票代號：<input type="text" id="symbol" required></label><br>
+
+    <label>選擇資料區間：</label>
+    <select id="date_mode">
+      <option value="range">📆 自訂起訖日期</option>
+      <option value="year">📅 最近幾年</option>
+      <option value="all">🕰️ 從上市至今</option>
     </select><br>
-    <button type="submit">開始預測</button>
+
+    <div id="date_range">
+      <label>起始日期：<input type="date" id="start_date"></label>
+      <label>結束日期：<input type="date" id="end_date"></label><br>
+    </div>
+
+    <div id="year_range" style="display:none">
+      <label>最近幾年：<input type="number" id="years" value="3" min="1"></label><br>
+    </div>
+
+    <label>資料頻率：
+      <select id="interval">
+        <option value="1d">日資料</option>
+        <option value="1wk">週資料</option>
+        <option value="1mo">月資料</option>
+      </select>
+    </label><br>
+
+    <button type="submit">開始分析</button>
   </form>
 
-  <div id="predict_result" class="chart"></div>
-
-  <h2>📊 股票分析工具</h2>
-  <form id="analysisForm">
-    股票代號：<input type="text" id="analysis_symbol" required>
-    起始日期：<input type="date" id="analysis_start" required>
-    結束日期：<input type="date" id="analysis_end" required>
-    資料頻率：<select id="interval">
-      <option value="1d">日資料</option>
-      <option value="1wk">週資料</option>
-      <option value="1mo">月資料</option>
-    </select>
-    <button type="submit">分析</button>
-    <button type="button" id="downloadExcel">📥 匯出 Excel</button>
-  </form>
-
-  <div id="analysis_result"></div>
+  <div id="result"></div>
 
   <script>
-    let lastAnalysis = {};
-
-    // 匯出 Excel
-    document.getElementById('downloadExcel').addEventListener('click', function () {
-      if (!lastAnalysis.excel_data) {
-        alert('請先執行一次分析');
-        return;
-      }
-      const byteCharacters = atob(lastAnalysis.excel_data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${lastAnalysis.symbol}_分析報告.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+    const dateMode = document.getElementById('date_mode');
+    dateMode.addEventListener('change', function () {
+      document.getElementById('date_range').style.display = this.value === 'range' ? 'block' : 'none';
+      document.getElementById('year_range').style.display = this.value === 'year' ? 'block' : 'none';
     });
-  // 送出分析表單
-    document.getElementById('analysisForm').addEventListener('submit', async function(e) {
+
+    document.getElementById('analyzeForm').addEventListener('submit', async function (e) {
       e.preventDefault();
-      const symbol = document.getElementById('analysis_symbol').value.trim().toUpperCase();
-      const start_date = document.getElementById('analysis_start').value;
-      const end_date = document.getElementById('analysis_end').value;
+      const symbol = document.getElementById('symbol').value.trim().toUpperCase();
+      const date_mode = document.getElementById('date_mode').value;
       const interval = document.getElementById('interval').value;
 
-      try {
-        const res = await fetch('/analysis', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbol, start_date, end_date, interval })
-        });
-        if (!res.ok) throw new Error('伺服器錯誤');
-        const result = await res.json();
-      if (result.error) {
-        document.getElementById('analysis_result').innerHTML = `<p style='color:red;'>${result.error}</p>`;
-        return;
+      let start_date = null, end_date = null, years = null;
+      if (date_mode === 'range') {
+        start_date = document.getElementById('start_date').value;
+        end_date = document.getElementById('end_date').value;
+      } else if (date_mode === 'year') {
+        years = parseInt(document.getElementById('years').value);
       }
 
-      lastAnalysis = result;
-      lastAnalysis.symbol = symbol;
-
-      let html = `<h3>${symbol} 股票分析結果</h3>`;
-      html += `<img src="data:image/png;base64,${result.nav_img}" alt="NAV 圖">`;
-      html += `<img src="data:image/png;base64,${result.rsi_img}" alt="RSI 圖">`;
-      html += `<img src="data:image/png;base64,${result.macd_img}" alt="MACD 圖">`;
-      html += `<img src="data:image/png;base64,${result.bb_img}" alt="布林通道圖">`;
-      html += `<p><strong>最大回測：</strong>${(result.max_drawdown * 100).toFixed(2)}%</p>`;
-      html += `<p><strong>Sharpe Ratio：</strong>${result.sharpe_ratio.toFixed(2)}</p>`;
-      html += `<p><strong>Alpha：</strong>${result.alpha?.toFixed(4) ?? 'N/A'}</p>`;
-      html += `<p><strong>Beta：</strong>${result.beta?.toFixed(4) ?? 'N/A'}</p>`;
-
-      document.getElementById('analysis_result').innerHTML = html;
-    });
-      // 股票代號自動補齊
-    const symbolInput = document.getElementById('predict_symbol');
-    const suggestionBox = document.getElementById('symbol_suggestions');
-
-    symbolInput.addEventListener('input', async function () {
-      const query = symbolInput.value.trim();
-      if (!query) return suggestionBox.innerHTML = '';
-      const res = await fetch(`/autocomplete?q=${query}`);
-      const list = await res.json();
-      suggestionBox.innerHTML = list.map(s => `<li>${s}</li>`).join('');
-    });
-
-    suggestionBox.addEventListener('click', function (e) {
-      if (e.target.tagName === 'LI') {
-        symbolInput.value = e.target.textContent;
-        suggestionBox.innerHTML = '';
-      }
-    });
-
-    // 送出預測表單
-    document.getElementById('predictForm').addEventListener('submit', async function (e) {
-      e.preventDefault();
-      const symbol = document.getElementById('predict_symbol').value.trim().toUpperCase();
-      const start_date = document.getElementById('predict_start').value;
-      const end_date = document.getElementById('predict_end').value;
-      const forecast_days = parseInt(document.getElementById('forecast_days').value);
-      const model_type = document.getElementById('model_type').value;
+      document.getElementById('result').innerHTML = '📊 分析中...';
 
       try {
-        const response = await fetch('/predict', {
+        const res = await fetch('/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbol, start_date, end_date, forecast_days, model_type })
+          body: JSON.stringify({ symbol, date_mode, start_date, end_date, years, interval })
         });
 
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error('伺服器錯誤：' + text);
+        const data = await res.json();
+
+        if (data.error) {
+          document.getElementById('result').innerHTML = `<p style='color:red;'>錯誤：${data.error}</p>`;
+          return;
         }
-        const result = await response.json();
 
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error('伺服器錯誤：' + text);
-      }
-      const result = await response.json();
-      if (result.error) {
-        document.getElementById('predict_result').innerHTML = `<p style='color:red;'>${result.error}</p>`;
-        return;
-      }
+        let html = `<h2>${symbol} 分析結果</h2>`;
+        html += `<p>每年平均波動度：</p><pre>${JSON.stringify(data.volatility, null, 2)}</pre>`;
+        html += `<p>每年平均報酬率：</p><pre>${JSON.stringify(data.avg_return, null, 2)}</pre>`;
+        html += `<p>最大回測：${(data.max_drawdown * 100).toFixed(2)}%</p>`;
+        html += `<p>Sharpe Ratio：${data.sharpe_ratio.toFixed(2)}</p>`;
+        html += `<p>Alpha：${data.alpha?.toFixed(4) ?? 'N/A'}</p>`;
+        html += `<p>Beta：${data.beta?.toFixed(4) ?? 'N/A'}</p>`;
+        html += `<img src="data:image/png;base64,${data.nav_img}" alt="NAV 圖">`;
 
-      let html = `<h3>${symbol} 預測結果（${model_type.toUpperCase()}，${forecast_days} 天）</h3>`;
-      html += `<img src="data:image/png;base64,${result.predict_img}" alt="預測圖">`;
-
-      if (model_type === 'compare') {
-        html += `<p><strong>LSTM RMSE：</strong>${result.lstm_rmse.toFixed(2)}</p>`;
-        html += `<p><strong>LSTM MAPE：</strong>${(result.lstm_mape * 100).toFixed(2)}%</p>`;
-        html += `<p><em>隨機模型不提供誤差評估。</em></p>`;
-      } else if (result.rmse && result.mape) {
-        html += `<p><strong>RMSE：</strong>${result.rmse.toFixed(2)}</p>`;
-        html += `<p><strong>MAPE：</strong>${(result.mape * 100).toFixed(2)}%</p>`;
-      }
-
-      document.getElementById('predict_result').innerHTML = html;
+        document.getElementById('result').innerHTML = html;
       } catch (err) {
-        document.getElementById('predict_result').innerHTML = `<p style='color:red;'>預測失敗：${err.message}</p>`;
+        document.getElementById('result').innerHTML = `<p style='color:red;'>錯誤：${err.message}</p>`;
       }
     });
   </script>
