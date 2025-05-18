@@ -20,6 +20,7 @@
       background: #fff;
       border: 1px solid #ccc;
       cursor: pointer;
+      list-style: none;
     }
     #symbol_suggestions li:hover {
       background: #f0f0f0;
@@ -58,7 +59,7 @@
 </head>
 <body>
   <h1>📈 股票分析系統</h1>
-  <form id="analyzeForm">
+  <form id="analyzeForm" autocomplete="off">
     <label>股票代號：
       <input type="text" id="symbol" required>
     </label><br>
@@ -97,7 +98,7 @@
       document.getElementById('year_range').style.display = e.target.value==='year'?'block':'none';
     });
 
-    // 自動補全
+    // 股票代號自動補全
     const symbolInput = document.getElementById('symbol');
     const suggestionBox = document.getElementById('symbol_suggestions');
     let lastFetch = '';
@@ -126,7 +127,7 @@
     // 提交分析
     document.getElementById('analyzeForm').addEventListener('submit', async e => {
       e.preventDefault();
-      const symbol    = document.getElementById('symbol').value.trim();
+      const symbol    = symbolInput.value.trim();
       const date_mode = document.getElementById('date_mode').value;
       const interval  = document.getElementById('interval').value;
       let start_date, end_date, years;
@@ -146,7 +147,7 @@
         });
         const data = await res.json();
         if (data.error) {
-          document.getElementById('result').innerHTML = `<p style="color:red;">錯誤：${data.error}</p>`;
+          document.getElementById('result').innerHTML = `<p style=\"color:red;\">錯誤：${data.error}</p>`;
           return;
         }
         let html = `<h2>${symbol} 分析結果</h2>`;
@@ -161,10 +162,10 @@
         html += `<p><strong>Sharpe Ratio：</strong>${data.sharpe_ratio.toFixed(2)}</p>`;
         html += `<p><strong>Alpha：</strong>${data.alpha!==null?data.alpha.toFixed(4):'N/A'}</p>`;
         html += `<p><strong>Beta：</strong>${data.beta!==null?data.beta.toFixed(4):'N/A'}</p>`;
-        html += `<img src="data:image/png;base64,${data.nav_img}" alt="NAV 圖">`;
+        html += `<img src=\"data:image/png;base64,${data.nav_img}\" alt=\"NAV 圖\">`;
         document.getElementById('result').innerHTML = html;
       } catch (err) {
-        document.getElementById('result').innerHTML = `<p style="color:red;">例外：${err.message}</p>`;
+        document.getElementById('result').innerHTML = `<p style=\"color:red;\">例外：${err.message}</p>`;
       }
     });
   </script>
